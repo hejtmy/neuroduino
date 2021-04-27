@@ -112,7 +112,7 @@ void Restart(){
 
 void ListenForOrders() {
   if (serialInput != "") {
-    if(serialInput.substring(0,7) == "PULSE+"){ 
+    if(serialInput.substring(0,6) == "PULSE+"){ 
       StartPulse(serialInput);
       SendDone();
     }
