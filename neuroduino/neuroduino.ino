@@ -14,6 +14,7 @@ bool connected = false;
 bool photoresistorUse = false;
 bool pulsing = false;
 int speed = 50; //speed for the delay factor
+int lettingKnowTime = 1000; //duration of how long will we keep the connection trying
 
 //
 unsigned long msAtStart;
@@ -22,7 +23,6 @@ unsigned long msFromStart;
 // DIGITAL PINS
 int outputPins[] = {8,9,10,11};
 int N_OUTPUT_PINS;
-int photoresistorPin = 0;
 
 
 // BUTTONS
@@ -32,9 +32,14 @@ const int buttonPins[] = {7, 6, 5, 4};
 const char buttonKeys[] = {'a','d','j','l'};
 
 // PHOTORESISTOR
-int photoresistorThresholdHigh = 500;
-int photoresistorThresholdLow = 100;
-int calibrationTime = 100;
+int photoresistorPin = 0;
+int photoresistorThreshold = 500;
+int photoTresholdMargin = 100;
+int photoCalibrationTime = 200;
+bool photoActionSent = false;
+bool photoSendData = false;
+int photoTimeSent = 0;
+int photoSendingDelay = 200;
 
 char untilChar = '\!';
 
@@ -51,9 +56,9 @@ void setup() {
     pinMode(buttonPins[i], INPUT_PULLUP);
   }
   for(int i = 0; i < ARRAY_SIZE(outputPins); i++){
-    pinMode(buttonPins[i], OUTPUT);
+    pinMode(outputPins[i], OUTPUT);
   }
-  
+  pinMode(photoresistorPin, INPUT);
 }
 
 // the loop function runs over and over again until power down or reset
@@ -66,20 +71,29 @@ void loop() {
     if (serialInput == "DISCONNECT") {
       Disconnect();
     }
-    if (connected) {
-      ListenForOrders();
+    if (!connected){
+      return;
+    }
+    ListenForOrders();
+  }
+  if (!connected){
+    return;
+  }
+  if (photoresistorUse) {
+    PhotoresistorAction();
+  }
+  if(photoSendData){
+    int t = millis();
+    if(t - photoTimeSent > photoSendingDelay){
+      photoTimeSent = t;
+      SendPhotoData();
     }
   }
-  if (connected){
-    if (photoresistorUse) {
-      PhotoresistorAction();
-    }
-    ButtonsAction();
-  }
+  ButtonsAction();
 }
 
 void LettingKnow() {
-  float time = millis();
+  unsigned long t = millis();
   while (true) {
     serialInput = Serial.readStringUntil(untilChar);
     if (serialInput == "DONE") {
@@ -87,7 +101,7 @@ void LettingKnow() {
       break;
     }
     Serial.println("NEURODUINO");
-    if (millis() - time > 1000) {
+    if (millis() - t > lettingKnowTime) {
       Serial.println("TIME IS UP");
       break;
     }
@@ -103,11 +117,15 @@ void Connect(){
 
 void Disconnect(){
   connected = false;
+  Restart();
   //Keyboard.end();
 }
 
 void Restart(){
-  Disconnect();
+  photoSendData = false;
+  photoresistorUse = false;
+  photoTimeSent = 0;
+  CancelPulse();
 }
 
 void ListenForOrders() {
@@ -124,30 +142,37 @@ void ListenForOrders() {
       Blink();
       SendDone();
     }
-    if (serialInput == "PHOTO+") {
-      StartPhotoresistor();
+    if (serialInput == "PHOTO-START") {
+      photoresistorUse = true;
       SendDone();
     }
-    if (serialInput == "PHOTO-") {
-      StopPhotoresistor();
+    if (serialInput == "PHOTO-END") {
+      photoresistorUse = false;
       SendDone();
     }
-    if (serialInput == "PHOTO-CAL-HIGH") {
-      CalibratePhotoresistorHigh();
+    if (serialInput == "PHOTO-DATA+") {
+      photoSendData = true;
+    }
+    if (serialInput == "PHOTO-DATA-") {
+      photoSendData = false;
+    }
+    if (serialInput == "PHOTO-CALIBRATE") {
+      CalibratePhotoresistor();
       SendDone();
     }
-    if (serialInput == "PHOTO-CAL-LOW") {
-      CalibratePhotoresistorLow();
-      SendDone();
-    }   
     if (serialInput == "RESTART") {
       Restart();
     }
   }
 }
 
-void SendDone(){
+unsigned long GetTime(){
   unsigned long msSinceStart = millis() - msAtStart;
+  return msSinceStart;
+}
+
+void SendDone(){
+  unsigned long msSinceStart = GetTime();
   char buf[14];
   sprintf(buf,"DONE%lu", msSinceStart);
   Serial.println(buf);
@@ -159,49 +184,37 @@ void Blink(){
   digitalWrite(13, LOW);
 }
 
-void StartPhotoresistor(){
-  photoresistorUse = true;
-}
-
-void StopPhotoresistor(){
-  photoresistorUse = false;
-}
-
-void CalibratePhotoresistorHigh(){
-  unsigned long endTime = millis() + calibrationTime;
-  photoresistorThresholdHigh = analogRead(photoresistorPin);
+void CalibratePhotoresistor(){
+  unsigned long endTime = millis() + photoCalibrationTime;
+  photoresistorThreshold = analogRead(photoresistorPin);
   while(millis() > endTime){
     int newValue = analogRead(photoresistorPin);
-    if(newValue > photoresistorThresholdHigh){
-      photoresistorThresholdHigh = newValue;
-    }
-  }
-}
-
-void CalibratePhotoresistorLow(){
-  unsigned long endTime = millis() + calibrationTime;
-  photoresistorThresholdLow = analogRead(photoresistorPin);
-  while(millis() > endTime){
-    int newValue = analogRead(photoresistorPin);
-    if(newValue < photoresistorThresholdHigh){
-      photoresistorThresholdLow = newValue;
+    if(newValue > photoresistorThreshold){
+      photoresistorThreshold = newValue;
     }
   }
 }
 
 void PhotoresistorAction(){
-  //what is this doing here???
-  if(digitalRead(7) == LOW){
-    Serial.println(analogRead(photoresistorPin));
-    static bool alreadyReacted = false;
-    if (analogRead(photoresistorPin) > photoresistorThresholdHigh) {
-        if(!alreadyReacted){
-          alreadyReacted = true;
-        }
-    } else {
-      alreadyReacted = false;
-    }
+  static bool photoHigh = false;
+  if (analogRead(photoresistorPin) > photoresistorThreshold && !photoHigh) {
+      char buf[20];
+      sprintf(buf,"PHOTO-HIGH-%lu", GetTime());
+      Serial.println(buf);
+      photoHigh = true;
   }
+  if (analogRead(photoresistorPin) < (photoresistorThreshold - photoTresholdMargin) && photoHigh) {
+      char buf[20];
+      sprintf(buf,"PHOTO-LOW-%lu", GetTime());
+      Serial.println(buf);
+      photoHigh = false;
+  }
+}
+
+void SendPhotoData(){
+  char buf[20];
+  sprintf(buf, "PHOTO-%d", analogRead(photoresistorPin));
+  Serial.println(buf);
 }
 
 void ButtonsAction(){
