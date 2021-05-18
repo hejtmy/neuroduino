@@ -244,5 +244,7 @@ void StartPulse(String inputString){
 
 void CancelPulse(){
   pulsing = false; // no fuctionality yet
-  digitalWrite(outputPins[0], LOW);
+  for(int i = 0; i < N_OUTPUT_PINS; i++){
+    digitalWrite(outputPins[i], LOW);
+  }
 }
