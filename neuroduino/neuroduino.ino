@@ -22,7 +22,7 @@ unsigned long msFromStart;
 
 // DIGITAL PINS
 int outputPins[] = {8,9,10,11};
-int N_OUTPUT_PINS;
+int N_OUTPUT_PINS = 4;
 
 
 // BUTTONS
@@ -46,7 +46,6 @@ char untilChar = '\!';
 // the setup function runs once when you press reset or power the board
 void setup() {
   Serial.begin(9600);
-  N_OUTPUT_PINS = ARRAY_SIZE(outputPins);
   Serial.setTimeout(timeout);
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB
@@ -55,7 +54,7 @@ void setup() {
   for(int i = 0; i < ARRAY_SIZE(buttonPins); i++){
     pinMode(buttonPins[i], INPUT_PULLUP);
   }
-  for(int i = 0; i < ARRAY_SIZE(outputPins); i++){
+  for(int i = 0; i < N_OUTPUT_PINS; i++){
     pinMode(outputPins[i], OUTPUT);
   }
   pinMode(photoresistorPin, INPUT);
@@ -230,14 +229,20 @@ void StartPulse(String inputString){
   pulsing = true; // no fuctionality yet
   // The signal comes as PULSE+0101 where the 
   // 0 an 1 determine pins at given positions to be on or off
-  String activePins = inputString.substring(7,11);
-  char buf[N_OUTPUT_PINS];
-  activePins.toCharArray(buf, N_OUTPUT_PINS);
+  String activePins = inputString.substring(6,10);
+  Serial.println(activePins);
+  char buf[N_OUTPUT_PINS+1];
+  activePins.toCharArray(buf, N_OUTPUT_PINS + 1);
+  Serial.println(buf);
   for(int i = 0; i < N_OUTPUT_PINS; i++){
-    if(buf[i] == "1"){
+    int val = buf[i] - '0';
+    Serial.println(val);
+    if(val == 1){
       digitalWrite(outputPins[i], HIGH);
+      Serial.println("true");
     } else {
       digitalWrite(outputPins[i], LOW);
+      Serial.println("false");
     }
   }
 }
